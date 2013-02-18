@@ -1,10 +1,10 @@
 //
-// Driver.cs
+// AssemblyResolver.cs
 //
 // Author:
-//   Jb Evain (jbevain@gmail.com)
+//   Jb Evain (jbevain@novell.com)
 //
-// (C) 2006 Jb Evain
+// (C) 2007 Novell, Inc.
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the
@@ -29,52 +29,43 @@
 using System;
 using System.Collections;
 using System.IO;
-using System.Xml.XPath;
+using Mono.Cecil;
 
-using Mono.Linker;
-using Mono.Linker.Steps;
+namespace Mono.Linker {
 
-public class Driver {
+	public class AssemblyResolver : BaseAssemblyResolver {
 
-	public static int Main (string [] args)
-	{
-		Driver driver = new Driver ();
-		driver.Run ();
-		return 0;
-	}
+		IDictionary _assemblies;
 
+		public IDictionary AssemblyCache {
+			get { return _assemblies; }
+		}
 
-	const string PROJ = "zz";
-	void Run ()
-	{
-		Pipeline p = GetStandardPipeline ();
-		LinkContext context = GetDefaultContext (p);
+		public AssemblyResolver ()
+			: this (new Hashtable ())
+		{
+		}
 
-		DirectoryInfo info = new DirectoryInfo (PROJ);
-		context.Resolver.AddSearchDirectory (info.FullName);
+		public AssemblyResolver (IDictionary assembly_cache)
+		{
+			_assemblies = assembly_cache;
+		}
 
-		foreach (var file in info.GetFiles ())
-			p.PrependStep (new ResolveFromAssemblyStep (info.FullName + "/" + file.Name));
+		public override AssemblyDefinition Resolve (AssemblyNameReference name, ReaderParameters parameters)
+		{
+			AssemblyDefinition asm = (AssemblyDefinition) _assemblies [name.Name];
+			if (asm == null) {
+				asm = base.Resolve (name, parameters);
+				_assemblies [name.Name] = asm;
+			}
 
-		p.Process (context);
-	}
+			return asm;
+		}
 
-
-	static LinkContext GetDefaultContext (Pipeline pipeline)
-	{
-		LinkContext context = new LinkContext (pipeline);
-		context.CoreAction = AssemblyAction.Skip;
-		context.OutputDirectory = "output";
-		return context;
-	}
-
-	static Pipeline GetStandardPipeline ()
-	{
-		Pipeline p = new Pipeline ();
-		p.AppendStep (new LoadReferencesStep ());
-		p.AppendStep (new BlacklistStep ());
-		p.AppendStep (new TypeMapStep ());
-		p.AppendStep (new MarkStep ());
-		return p;
+		public void CacheAssembly (AssemblyDefinition assembly)
+		{
+			_assemblies [assembly.Name.Name] = assembly;
+			base.AddSearchDirectory (Path.GetDirectoryName (assembly.MainModule.FullyQualifiedName));
+		}
 	}
 }

@@ -1,5 +1,5 @@
 //
-// Driver.cs
+// AssemblyInfo.cs
 //
 // Author:
 //   Jb Evain (jbevain@gmail.com)
@@ -27,54 +27,17 @@
 //
 
 using System;
-using System.Collections;
-using System.IO;
-using System.Xml.XPath;
+using System.Reflection;
+using System.Runtime.InteropServices;
 
-using Mono.Linker;
-using Mono.Linker.Steps;
+[assembly: AssemblyTitle ("Mono.Linker")]
+[assembly: AssemblyDescription ("Mono CIL Linker")]
+[assembly: AssemblyConfiguration ("")]
+[assembly: AssemblyProduct ("")]
+[assembly: AssemblyCopyright ("(C) 2006, Jb Evain")]
+[assembly: AssemblyCulture ("")]
 
-public class Driver {
+[assembly: CLSCompliant (false)]
+[assembly: ComVisible (false)]
 
-	public static int Main (string [] args)
-	{
-		Driver driver = new Driver ();
-		driver.Run ();
-		return 0;
-	}
-
-
-	const string PROJ = "zz";
-	void Run ()
-	{
-		Pipeline p = GetStandardPipeline ();
-		LinkContext context = GetDefaultContext (p);
-
-		DirectoryInfo info = new DirectoryInfo (PROJ);
-		context.Resolver.AddSearchDirectory (info.FullName);
-
-		foreach (var file in info.GetFiles ())
-			p.PrependStep (new ResolveFromAssemblyStep (info.FullName + "/" + file.Name));
-
-		p.Process (context);
-	}
-
-
-	static LinkContext GetDefaultContext (Pipeline pipeline)
-	{
-		LinkContext context = new LinkContext (pipeline);
-		context.CoreAction = AssemblyAction.Skip;
-		context.OutputDirectory = "output";
-		return context;
-	}
-
-	static Pipeline GetStandardPipeline ()
-	{
-		Pipeline p = new Pipeline ();
-		p.AppendStep (new LoadReferencesStep ());
-		p.AppendStep (new BlacklistStep ());
-		p.AppendStep (new TypeMapStep ());
-		p.AppendStep (new MarkStep ());
-		return p;
-	}
-}
+[assembly: AssemblyVersion ("0.2.0.0")]

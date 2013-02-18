@@ -1,10 +1,10 @@
 //
-// Driver.cs
+// CleanStep.cs
 //
 // Author:
 //   Jb Evain (jbevain@gmail.com)
 //
-// (C) 2006 Jb Evain
+// (C) 2008 Novell, Inc. (http://www.novell.com)
 //
 // Permission is hereby granted, free of charge, to any person obtaining
 // a copy of this software and associated documentation files (the
@@ -27,54 +27,22 @@
 //
 
 using System;
-using System.Collections;
-using System.IO;
-using System.Xml.XPath;
 
-using Mono.Linker;
-using Mono.Linker.Steps;
+using Mono.Cecil;
 
-public class Driver {
+namespace Mono.Linker.Steps {
 
-	public static int Main (string [] args)
-	{
-		Driver driver = new Driver ();
-		driver.Run ();
-		return 0;
-	}
+	public class RegenerateGuidStep : BaseStep {
 
+		protected override void ProcessAssembly (AssemblyDefinition assembly)
+		{
+			if (Annotations.GetAction (assembly) == AssemblyAction.Link)
+				RegenerateGuid (assembly);
+		}
 
-	const string PROJ = "zz";
-	void Run ()
-	{
-		Pipeline p = GetStandardPipeline ();
-		LinkContext context = GetDefaultContext (p);
-
-		DirectoryInfo info = new DirectoryInfo (PROJ);
-		context.Resolver.AddSearchDirectory (info.FullName);
-
-		foreach (var file in info.GetFiles ())
-			p.PrependStep (new ResolveFromAssemblyStep (info.FullName + "/" + file.Name));
-
-		p.Process (context);
-	}
-
-
-	static LinkContext GetDefaultContext (Pipeline pipeline)
-	{
-		LinkContext context = new LinkContext (pipeline);
-		context.CoreAction = AssemblyAction.Skip;
-		context.OutputDirectory = "output";
-		return context;
-	}
-
-	static Pipeline GetStandardPipeline ()
-	{
-		Pipeline p = new Pipeline ();
-		p.AppendStep (new LoadReferencesStep ());
-		p.AppendStep (new BlacklistStep ());
-		p.AppendStep (new TypeMapStep ());
-		p.AppendStep (new MarkStep ());
-		return p;
+		static void RegenerateGuid (AssemblyDefinition asm)
+		{
+			asm.MainModule.Mvid = Guid.NewGuid ();
+		}
 	}
 }

@@ -61,7 +61,7 @@ namespace Mono.Linker.Steps {
 			foreach (AssemblyDefinition assembly in _context.GetAssemblies ())
 				ProcessAssembly (assembly);
 
-			DumpXmp ();
+			DumpXml ();
 		}
 
 		void ProcessAssembly (AssemblyDefinition assembly)
@@ -461,18 +461,166 @@ namespace Mono.Linker.Steps {
 			return type;
 		}
 
-		string CurrentContext {
-			get {
-				if (currentField != null)
-					return string.Format ("f:{0}:{1}:{2}", currentType.Module.Name, currentType.FullName, currentField.Name);
-				if (currentMethod != null)
-					return string.Format ("m:{0}:{1}:{2}/{3}", currentType.Module.Name, currentType.FullName, currentMethod.Name, currentMethod.HasParameters ? currentMethod.Parameters.Count : 0);
-				return string.Format ("t:{0}:{1}", currentType.Module.Name, currentType.FullName);
+		int nextSCCIndex = 1;
+		Stack<Node> nodeStack = new Stack<Node> ();
+		List<NodeGroup> groups = new List<NodeGroup> ();
+
+		void Dfs1 (Node node)
+		{
+			node.Index = nextSCCIndex++;
+			node.LowLink = node.Index;
+			nodeStack.Push (node);
+
+			foreach (var to in node.PointsTo) {
+				if (to.Index == 0) {
+					Dfs1 (to);
+					node.LowLink = System.Math.Min (node.LowLink, to.LowLink);
+				} else if (nodeStack.Contains (to)) {
+					node.LowLink = System.Math.Min (node.LowLink, to.Index);
+				}
 			}
+
+			if (node.LowLink == node.Index) {
+				NodeGroup g = new NodeGroup ();
+				Node n;
+				do {
+					n = nodeStack.Pop ();
+					n.Group = g;
+					g.Add (n);
+				} while (n != node);
+				groups.Add (g);
+			}
+		}
+
+		void Dfs2 (NodeGroup g)
+		{
+			foreach (var n in g.Nodes) {
+				foreach (var t in n.PointsTo) {
+					if (t.Group != g)
+						g.Connect (t.Group);
+				}
+			}
+		}
+
+		void FindSCC ()
+		{
+			foreach (var node in allNodes) {
+				if (node.Index > 0)
+					continue;
+				Dfs1 (node);
+			}
+
+			foreach (var g in groups)
+				Dfs2 (g);
+
+			int p = 0;
+			foreach (var g in groups) {
+				if (g.From.Count () == 1)
+					++p;
+			}
+
+			Console.WriteLine ("found {0} nodes and {1} SCC of which {2} have bridges", allNodes.Count, groups.Count, p);
+
+			foreach (var g in groups) {
+				if (g.To.Count () > 0)
+					continue;
+					
+				var cur = g;
+				var next = g;
+				int loops = 0;
+			
+				while (next.From.Count () == 1) {
+					cur = next;
+					next = cur.From.First ();
+					++loops;
+				}
+			
+				if (loops >= 1) {
+					string ssc = "SSC PATH ";
+					var gg = g;
+					while (gg != next) {
+						ssc += string.Format ("{0} ", gg.Id);
+						gg.FindBridgeEdge ();
+						gg = gg.From.First ();
+					}
+					Console.WriteLine (ssc + "\n\n");
+				}
+			}
+			// foreach (var g in groups) {
+			// 	if (g.From.Count () == 1)
+			// 		g.FindBridgeEdge ();
+			// }
+			// foreach (var g in groups)
+			// 	g.ExtendPath ();
+			// var o = from g in groups orderby g.Weight descending select g;
+			// foreach (var g in o.Take (10))
+			// 	Console.WriteLine ("SSC {0} weight {1}", g.Id, g.Weight);
+		}
+
+		class NodeGroup {
+			static int counter;
+
+			int id = counter++;
+			List<Node> nodes = new List<Node> ();
+			HashSet<NodeGroup> toGroups = new HashSet<NodeGroup> ();
+			HashSet<NodeGroup> fromGroups = new HashSet<NodeGroup> ();
+	
+			int weight = -1;
+
+			internal void ExtendPath ()
+			{
+				if (weight >= 0)
+					return;
+				foreach (var n in toGroups)
+					n.ExtendPath ();
+				if (fromGroups.Count > 1 || toGroups.Count > 1) {
+					weight = 0;
+				} else {
+					weight = 1;
+					if (toGroups.Count == 1)
+						weight += toGroups.First ().weight;
+				}
+			}
+
+			public int Weight { get { return weight; } }
+			public int Id { get { return id; } }
+			public IEnumerable<Node> Nodes { get { return nodes; } }
+			public IEnumerable<NodeGroup> From { get { return fromGroups; } }
+			public IEnumerable<NodeGroup> To { get { return toGroups; } }
+
+			public void Add (Node node)
+			{
+				nodes.Add (node);
+			}
+
+			public void Connect (NodeGroup to)
+			{
+				toGroups.Add (to);
+				to.fromGroups.Add (this);
+			}
+
+			public void FindBridgeEdge ()
+			{
+				Console.WriteLine ("-----bridges for SCC {0}/{1}/{2} in SCC {3}/{4}-----", Id, nodes.Count, fromGroups.Count, From.First ().Id, From.First ().nodes.Count);
+				foreach (var n in From.First ().Nodes) {
+					foreach (var t in n.PointsTo) {
+						if (t.Group == this) {
+							Console.WriteLine ("bridge {0}/{1} -> {2}/{3}", n.Id, n.Label, t.Id, t.Label);
+						}
+					}
+				}
+			}
+
 		}
 
 		class Node {
 			static int counter;
+
+			//SCC support
+			public int Index { get; set; }
+			public int LowLink { get; set; }
+			public NodeGroup Group { get; set; }
+
 			public int Id { get; protected set; }
 			public string Label { get; protected  set; }
 			public string Module { get; protected  set; }
@@ -535,26 +683,33 @@ namespace Mono.Linker.Steps {
 		Dictionary <TypeDefinition, Node> type_to_node = new Dictionary <TypeDefinition, Node> ();
 		Dictionary <FieldDefinition, Node> field_to_node = new Dictionary <FieldDefinition, Node> ();
 		Dictionary <MethodDefinition, Node> method_to_node = new Dictionary <MethodDefinition, Node> ();
+		List<Node> allNodes = new List<Node> ();
 
 		Node NodeForField (FieldDefinition field)
 		{
 			if (field_to_node.ContainsKey (field))
 				return field_to_node [field];
-			return field_to_node [field] = new Node (field);
+			var r = new Node (field);
+			allNodes.Add (r);
+			return field_to_node [field] = r;
 		}
 
 		Node NodeForMethod (MethodDefinition method)
 		{
 			if (method_to_node.ContainsKey (method))
 				return method_to_node [method];
-			return method_to_node [method] = new Node (method);
+			var r = new Node (method);
+			allNodes.Add (r);
+			return method_to_node [method] = r;
 		}
 
 		Node NodeForType (TypeDefinition type)
 		{
 			if (type_to_node.ContainsKey (type))
 				return type_to_node [type];
-			return type_to_node [type] = new Node (type);
+			var r = new Node (type);
+			allNodes.Add (r);
+			return type_to_node [type] = r;
 		}
 
 		Node CurrentNode {
@@ -568,29 +723,67 @@ namespace Mono.Linker.Steps {
 		}
 
 		bool dump_graph = false;
+		bool type_to_type_only = true;
+
+		string DumpType (TypeDefinition type)
+		{
+			return string.Format ("{0}:{1}", type.Module.Name, type.FullName);
+		}
+
+		string CurrentContext {
+			get {
+				if (currentField != null)
+					return string.Format ("f:{0}:{1}", DumpType (currentType), currentField.Name);
+				if (currentMethod != null)
+					return string.Format ("m:{0}:{1}/{2}", DumpType (currentType), currentMethod.Name, currentMethod.HasParameters ? currentMethod.Parameters.Count : 0);
+				return string.Format ("t:{0}", DumpType (currentType));
+			}
+		}
+
+		void TypeOnly (TypeDefinition type)
+		{
+			if (currentType == type)
+				return;
+			if (!NodeForType (currentType).PointsTo.Add (NodeForType (type)))
+				return;
+			if (!dump_graph)
+				Console.WriteLine ("t:{0} | {1}", DumpType (type), DumpType (currentType));
+		}
 
 		void RecordTypeRelation (TypeDefinition type)
 		{
-			if (!CurrentNode.PointsTo.Add (NodeForType (type)))
-				return;
-			if (!dump_graph)
-				Console.WriteLine ("t:{0}:{1} | {2}", type.Module.Name, type.FullName, CurrentContext);
+			if (type_to_type_only) {
+				TypeOnly (type);
+			} else {
+				if (!CurrentNode.PointsTo.Add (NodeForType (type)))
+					return;
+				if (!dump_graph)
+					Console.WriteLine ("t:{0} | {1}", DumpType (type), CurrentContext);
+			}
 		}
 
 		void RecordFieldRelation (FieldDefinition field)
 		{
-			if (!CurrentNode.PointsTo.Add (NodeForField (field)))
-				return;
-			if (!dump_graph)
-				Console.WriteLine ("f:{0}:{1}:{2} | {3}", field.DeclaringType.Module.Name, field.DeclaringType.FullName, field.Name, CurrentContext);
+			if (type_to_type_only) {
+				TypeOnly (field.DeclaringType);
+			} else {
+				if (!CurrentNode.PointsTo.Add (NodeForField (field)))
+					return;
+				if (!dump_graph)
+					Console.WriteLine ("f:{0}:{1} | {2}", DumpType (field.DeclaringType), field.Name, CurrentContext);
+			}
 		}
 
 		void RecordMethodRelation (MethodDefinition method)
 		{
-			if (!CurrentNode.PointsTo.Add (NodeForMethod (method)))
-				return;
-			if (!dump_graph)
-				Console.WriteLine ("m:{0}:{1}:{2}/{3} | {4}", method.DeclaringType.Module.Name, method.DeclaringType.FullName, method.Name, method.HasParameters ? method.Parameters.Count : 0, CurrentContext);
+			if (type_to_type_only) {
+				TypeOnly (method.DeclaringType);
+			} else {
+				if (!CurrentNode.PointsTo.Add (NodeForMethod (method)))
+					return;
+				if (!dump_graph)
+					Console.WriteLine ("m:{0}:{1}/{2} | {3}", DumpType (method.DeclaringType), method.Name, method.HasParameters ? method.Parameters.Count : 0, CurrentContext);				
+			}
 		}
 
 		void DumpNodes (IEnumerable <Node> nodes)
@@ -610,10 +803,14 @@ namespace Mono.Linker.Steps {
 			}
 		}
 
-		void DumpXmp ()
+		void DumpXml ()
 		{
 			if (!dump_graph)
 				return;
+
+			FindSCC ();
+			return;
+
 			Console.WriteLine ("<?xml version=\"1.0\" encoding=\"UTF8\"?>");
 			Console.WriteLine ("<gexf xmlns=\"http://www.gexf.net/1.2draft\"");
 			Console.WriteLine ("\txmlns:xsi=\"http://www.w3.org/2001/XMLSchemainstance\"");

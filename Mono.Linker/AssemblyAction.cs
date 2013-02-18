@@ -1,5 +1,5 @@
 //
-// Driver.cs
+// AssemblyAction.cs
 //
 // Author:
 //   Jb Evain (jbevain@gmail.com)
@@ -26,55 +26,12 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-using System;
-using System.Collections;
-using System.IO;
-using System.Xml.XPath;
+namespace Mono.Linker {
 
-using Mono.Linker;
-using Mono.Linker.Steps;
-
-public class Driver {
-
-	public static int Main (string [] args)
-	{
-		Driver driver = new Driver ();
-		driver.Run ();
-		return 0;
-	}
-
-
-	const string PROJ = "zz";
-	void Run ()
-	{
-		Pipeline p = GetStandardPipeline ();
-		LinkContext context = GetDefaultContext (p);
-
-		DirectoryInfo info = new DirectoryInfo (PROJ);
-		context.Resolver.AddSearchDirectory (info.FullName);
-
-		foreach (var file in info.GetFiles ())
-			p.PrependStep (new ResolveFromAssemblyStep (info.FullName + "/" + file.Name));
-
-		p.Process (context);
-	}
-
-
-	static LinkContext GetDefaultContext (Pipeline pipeline)
-	{
-		LinkContext context = new LinkContext (pipeline);
-		context.CoreAction = AssemblyAction.Skip;
-		context.OutputDirectory = "output";
-		return context;
-	}
-
-	static Pipeline GetStandardPipeline ()
-	{
-		Pipeline p = new Pipeline ();
-		p.AppendStep (new LoadReferencesStep ());
-		p.AppendStep (new BlacklistStep ());
-		p.AppendStep (new TypeMapStep ());
-		p.AppendStep (new MarkStep ());
-		return p;
+	public enum AssemblyAction {
+		Skip,
+		Copy,
+		Link,
+		Delete,
 	}
 }

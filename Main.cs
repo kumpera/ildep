@@ -39,18 +39,17 @@ public class Driver {
 	public static int Main (string [] args)
 	{
 		Driver driver = new Driver ();
-		driver.Run ();
+		driver.Run (args [0]);
 		return 0;
 	}
 
 
-	const string PROJ = "zz";
-	void Run ()
+	void Run (string project)
 	{
 		Pipeline p = GetStandardPipeline ();
 		LinkContext context = GetDefaultContext (p);
 
-		DirectoryInfo info = new DirectoryInfo (PROJ);
+		DirectoryInfo info = new DirectoryInfo (project);
 		context.Resolver.AddSearchDirectory (info.FullName);
 
 		foreach (var file in info.GetFiles ())
